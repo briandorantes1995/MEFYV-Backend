@@ -1,0 +1,38 @@
+{
+  "name": "back",
+  "version": "1.0.0",
+  "description": "backend remisiones",
+  "main": "index.js",
+  "scripts": {
+    "start": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Brian",
+  "license": "ISC",
+  "dependencies": {
+    "@babel/core": "^7.22.10",
+    "@babel/node": "^7.22.10",
+    "@babel/preset-env": "^7.22.10",
+    "@prisma/client": "^5.2.0",
+    "@supabase/supabase-js": "^2.45.4",
+    "amqplib": "^0.10.3",
+    "bcrypt": "^5.1.0",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-async-errors": "^3.1.1",
+    "express-session": "^1.17.3",
+    "express-validator": "^7.0.1",
+    "handlebars": "^4.7.8",
+    "jsonwebtoken": "^9.0.1",
+    "mailgun-js": "^0.6.7",
+    "nodemailer": "^6.9.4",
+    "nodemailer-mailgun-transport": "^2.1.5",
+    "pg": "^8.11.2",
+    "pino": "^8.15.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
