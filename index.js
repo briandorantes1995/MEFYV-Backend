@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const session = require('express-session');
 const usuarioRouter = require('./endpoints/usuario');
+const articuloRouter = require('./endpoints/articulo');
 const app = express();
 
 app.use(express.json());
@@ -38,6 +39,7 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/usuario', usuarioRouter);
+app.use('/articulo', articuloRouter);
 
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
