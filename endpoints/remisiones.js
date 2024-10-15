@@ -100,7 +100,14 @@ router.get('/buscar', async (req, res) => {
         const remisionesConDetalles = await Promise.all(remisiones.map(async (remision) => {
             const { data: detalles, error: detallesError } = await supabase
                 .from('detalles_remision')
-                .select('articulo_id, cantidad')
+                .select(`
+                    articulo_id,
+                    cantidad,
+                    articulos(
+                        descripcion,
+                        precio
+                    )
+                `)
                 .eq('remision_id', remision.id);
 
             if (detallesError) {
@@ -108,9 +115,16 @@ router.get('/buscar', async (req, res) => {
                 throw detallesError;
             }
 
+            // Asegurarse de que los detalles contienen los datos de los artículos
+            const detallesConArticulos = detalles.map(detalle => ({
+                ...detalle,
+                descripcion: detalle.articulos.descripcion,
+                precio: detalle.articulos.precio
+            }));
+
             return {
                 ...remision,
-                detalles
+                detalles: detallesConArticulos
             };
         }));
 
@@ -121,6 +135,129 @@ router.get('/buscar', async (req, res) => {
     }
 });
 
+// Endpoint para actualizar una remisión
+router.put('/actualizar-remision/:identificador', async (req, res) => {
+    const { identificador } = req.params; // Obtener el identificador de la remisión de los parámetros
+    const { nombre, domicilio, rfc, articulos } = req.body; // Obtener los datos a actualizar del cuerpo de la solicitud
+
+    try {
+        // Verificar si la remisión existe
+        const { data: remisionData, error: remisionError } = await supabase
+            .from('remisiones')
+            .select('*')
+            .eq('identificador', identificador) // Cambia 'id' por 'identificador'
+            .single(); // Obtener solo una remisión
+
+        if (remisionError || !remisionData) {
+            return res.status(404).send({
+                message: 'Remisión no encontrada',
+                error: remisionError ? remisionError.message : 'No existe una remisión con este identificador.'
+            });
+        }
+
+        // Actualizar la remisión en la tabla "remisiones"
+        const { error: updateError } = await supabase
+            .from('remisiones')
+            .update({
+                cliente: nombre,
+                domicilio,
+                rfc
+            })
+            .eq('identificador', identificador); // Cambia 'id' por 'identificador'
+
+        if (updateError) {
+            throw updateError;
+        }
+
+        // Borrar los artículos existentes antes de insertar los nuevos
+        await supabase
+            .from('detalles_remision')
+            .delete()
+            .eq('remision_id', remisionData.id);
+
+        // Insertar los artículos relacionados con esta remisión en la tabla "detalles_remision"
+        const detallesToInsert = articulos.map(articulo => ({
+            remision_id: remisionData.id,
+            articulo_id: articulo.articuloId,
+            cantidad: articulo.cantidad
+        }));
+
+        const { error: detallesError } = await supabase
+            .from('detalles_remision')
+            .insert(detallesToInsert);
+
+        if (detallesError) {
+            throw detallesError;
+        }
+
+        // Responder con éxito
+        res.status(200).send({
+            message: 'Remisión actualizada con éxito',
+            remisionId: remisionData.id // Retorna el ID de la remisión actualizada
+        });
+    } catch (error) {
+        console.error('Error al actualizar la remisión:', error);
+        res.status(500).send({
+            message: 'Error al actualizar la remisión',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint para borrar una remisión
+router.delete('/borrar-remision/:identificador', async (req, res) => {
+    const { identificador } = req.params; // Obtener el identificador de la remisión de los parámetros
+
+    try {
+        // Verificar si la remisión existe
+        const { data: remisionData, error: remisionError } = await supabase
+            .from('remisiones')
+            .select('*')
+            .eq('identificador', identificador) // Busca la remisión por su identificador
+            .single(); // Obtener solo una remisión
+
+        if (remisionError || !remisionData) {
+            return res.status(404).send({
+                message: 'Remisión no encontrada',
+                error: remisionError ? remisionError.message : 'No existe una remisión con este identificador.'
+            });
+        }
+
+        // Borrar los detalles de la remisión antes de eliminar la remisión en sí
+        const { error: detallesError } = await supabase
+            .from('detalles_remision')
+            .delete()
+            .eq('remision_id', remisionData.id); // Usa el ID de la remisión encontrada
+
+        if (detallesError) {
+            throw detallesError;
+        }
+
+        // Borrar la remisión
+        const { error: deleteError } = await supabase
+            .from('remisiones')
+            .delete()
+            .eq('identificador', identificador);
+
+        if (deleteError) {
+            throw deleteError;
+        }
+
+        // Responder con éxito
+        res.status(200).send({
+            message: 'Remisión eliminada con éxito',
+            remisionId: remisionData.id
+        });
+    } catch (error) {
+        console.error('Error al eliminar la remisión:', error);
+        res.status(500).send({
+            message: 'Error al eliminar la remisión',
+            error: error.message
+        });
+    }
+});
+
 
 
 module.exports = router;
+

@@ -9,7 +9,6 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS configuration
 app.use(function(req, res, next) {
     res.header('Access-Control-Allow-Origin', process.env.FRONTEND || '*'); // Temporarily allow all origins
     res.header('Access-Control-Allow-Credentials', true);
@@ -21,7 +20,6 @@ app.use(function(req, res, next) {
     next();
 });
 
-// Session configuration
 app.use(session({
     secret: 'PasswordResetNodeJs',
     name: "reset",
@@ -32,7 +30,6 @@ app.use(session({
     },
 }));
 
-// Log all incoming requests
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
     next();
