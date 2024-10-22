@@ -1,21 +1,22 @@
 require('dotenv').config();
 const express = require('express');
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcryptjs"); // Cambiado a bcryptjs
 const jwt = require("jsonwebtoken");
 const router = express.Router();
-const {createClient}= require('@supabase/supabase-js');
+const { createClient } = require('@supabase/supabase-js');
 const secretKey = process.env.SECRETO;
-const supabaseUrl = 'https://jrkkjsjokqbgokcklnzf.supabase.co'
-const supabaseKey = process.env.SUPABASE_KEY
-const supabase = createClient(supabaseUrl, supabaseKey)
+const supabaseUrl = 'https://jrkkjsjokqbgokcklnzf.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-//Prueba Endpoint
+// Prueba Endpoint
 router.get("/", (request, response) => {
     response.json({ message: "Hola usuario" });
 });
 
 router.post("/registro", async (request, response) => {
     try {
+        // Hashing con bcryptjs
         const hashedPassword = await bcrypt.hash(request.body.contrasena, 10);
         const { data, error } = await supabase.from('usuarios').insert([
             {
@@ -60,7 +61,7 @@ router.post("/login", async (request, response) => {
 
         const usuario = usuarios[0];
 
-        // Verificar la contraseña
+        // Verificar la contraseña con bcryptjs
         const passwordCheck = await bcrypt.compare(request.body.contrasena, usuario.contrasena);
         if (!passwordCheck) {
             return response.status(400).send({
@@ -91,6 +92,5 @@ router.post("/login", async (request, response) => {
         });
     }
 });
-
 
 module.exports = router;

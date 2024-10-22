@@ -41,12 +41,11 @@ router.post("/agregar", async (request, response) => {
     }
 });
 
-// Nuevo Endpoint para obtener todos los artículos
 router.get("/articulos", async (request, response) => {
     try {
         const { data, error } = await supabase
-            .from('articulos')  // La tabla que consultas
-            .select('*');       // Selecciona todos los campos
+            .from('articulos')
+            .select('*');
 
         if (error) {
             return response.status(400).send({

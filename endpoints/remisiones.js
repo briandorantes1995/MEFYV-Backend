@@ -14,7 +14,17 @@ const generateUniqueIdentifier = () => {
 // Endpoint para crear una remisión
 router.post('/crear-remision', async (req, res) => {
     try {
-        const { cliente, domicilio, rfc, articulos, observaciones } = req.body;
+        const { clienteId, articulos} = req.body;
+        // Verificar si el cliente existe
+        const { data: clienteData, error: clienteError } = await supabase
+            .from('clientes')
+            .select('id')
+            .eq('id', clienteId) // Buscamos al cliente por su ID
+            .single();
+
+        if (clienteError || !clienteData) {
+            return res.status(400).send({ message: 'El cliente no existe', error: clienteError?.message });
+        }
 
         // Generar el identificador único para la remisión
         const identificador = generateUniqueIdentifier();
@@ -28,16 +38,14 @@ router.post('/crear-remision', async (req, res) => {
             .insert([
                 {
                     fecha,
-                    cliente,
-                    domicilio,
-                    rfc,
-                    identificador,
+                    cliente_id: clienteId, // Usar el clienteId recibido
+                    identificador, // Asignar el identificador único
                 }
             ])
             .select(); // Para obtener el ID de la remisión insertada
 
         if (remisionError) {
-            throw remisionError;
+            throw remisionError; // Manejar el error de creación de la remisión
         }
 
         const remisionId = remisionData[0].id;  // Obtener el ID de la remisión insertada
@@ -54,7 +62,7 @@ router.post('/crear-remision', async (req, res) => {
             .insert(detallesToInsert);
 
         if (detallesError) {
-            throw detallesError;
+            throw detallesError; // Manejar el error de inserción de detalles
         }
 
         // Responder con éxito
@@ -72,6 +80,8 @@ router.post('/crear-remision', async (req, res) => {
     }
 });
 
+
+// Endpoint para buscar remisiones
 router.get('/buscar', async (req, res) => {
     try {
         const { identificador } = req.query;
@@ -81,15 +91,22 @@ router.get('/buscar', async (req, res) => {
             return res.status(400).send({ message: 'Se requiere el parámetro identificador para la búsqueda.' });
         }
 
-        // Construir la consulta
-        let query = supabase.from('remisiones').select('*').eq('identificador', identificador);
+        // Construir la consulta para obtener la remisión y la información del cliente
+        const { data: remisiones, error: remisionError } = await supabase
+            .from('remisiones')
+            .select(`
+                *,
+                clientes (
+                    nombre,
+                    domicilio,
+                    rfc
+                )
+            `)
+            .eq('identificador', identificador);
 
-        // Ejecutar la consulta
-        const { data: remisiones, error } = await query;
-
-        if (error) {
-            console.error('Error en la consulta a remisiones:', error);
-            return res.status(500).send({ message: 'Error al realizar la búsqueda de remisiones.', error: error.message });
+        if (remisionError) {
+            console.error('Error en la consulta a remisiones:', remisionError);
+            return res.status(500).send({ message: 'Error al realizar la búsqueda de remisiones.', error: remisionError.message });
         }
 
         if (!remisiones || remisiones.length === 0) {
@@ -122,8 +139,14 @@ router.get('/buscar', async (req, res) => {
                 precio: detalle.articulos.precio
             }));
 
+            // Retornar la remisión junto con la información del cliente
             return {
-                ...remision,
+                id: remision.id,
+                fecha: remision.fecha,
+                identificador: remision.identificador,
+                cliente: remision.clientes?.nombre,
+                domicilio: remision.clientes?.domicilio,
+                rfc: remision.clientes?.rfc,
                 detalles: detallesConArticulos
             };
         }));
@@ -135,10 +158,11 @@ router.get('/buscar', async (req, res) => {
     }
 });
 
+
 // Endpoint para actualizar una remisión
 router.put('/actualizar-remision/:identificador', async (req, res) => {
     const { identificador } = req.params; // Obtener el identificador de la remisión de los parámetros
-    const { nombre, domicilio, rfc, articulos } = req.body; // Obtener los datos a actualizar del cuerpo de la solicitud
+    const { clienteId, articulos } = req.body; // Obtener los datos a actualizar del cuerpo de la solicitud
 
     try {
         // Verificar si la remisión existe
@@ -159,11 +183,9 @@ router.put('/actualizar-remision/:identificador', async (req, res) => {
         const { error: updateError } = await supabase
             .from('remisiones')
             .update({
-                cliente: nombre,
-                domicilio,
-                rfc
+                cliente_id: clienteId // Actualizamos solo el cliente_id
             })
-            .eq('identificador', identificador); // Cambia 'id' por 'identificador'
+            .eq('identificador', identificador); // Usamos el identificador
 
         if (updateError) {
             throw updateError;
@@ -177,7 +199,7 @@ router.put('/actualizar-remision/:identificador', async (req, res) => {
 
         // Insertar los artículos relacionados con esta remisión en la tabla "detalles_remision"
         const detallesToInsert = articulos.map(articulo => ({
-            remision_id: remisionData.id,
+            remision_id: remisionData.id, // ID de la remisión
             articulo_id: articulo.articuloId,
             cantidad: articulo.cantidad
         }));
@@ -203,6 +225,7 @@ router.put('/actualizar-remision/:identificador', async (req, res) => {
         });
     }
 });
+
 
 // Endpoint para borrar una remisión
 router.delete('/borrar-remision/:identificador', async (req, res) => {
