@@ -102,7 +102,7 @@ router.get('/buscar', async (req, res) => {
                     rfc
                 )
             `)
-            .eq('identificador', identificador);
+            .ilike('identificador', `%${identificador}%`); // Cambiado a ilike para coincidencias parciales
 
         if (remisionError) {
             console.error('Error en la consulta a remisiones:', remisionError);
