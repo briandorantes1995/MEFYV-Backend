@@ -2,9 +2,14 @@ require('dotenv').config();
 const express = require('express');
 const router = express.Router();
 const { createClient } = require('@supabase/supabase-js');
-const supabaseUrl = 'https://jrkkjsjokqbgokcklnzf.supabase.co'
-const supabaseKey = process.env.SUPABASE_KEY
-const supabase = createClient(supabaseUrl, supabaseKey)
+const supabaseUrl = 'https://jrkkjsjokqbgokcklnzf.supabase.co';
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+const PDFDocument = require('pdfkit');
+const Mailgun = require('mailgun.js');
+const formData = require('form-data');
+const mailgun = new Mailgun(formData);
+const mg = mailgun.client({ username: 'api', key: process.env.MAILGUN_API_KEY });
 
 // Generador de identificador único alfanumérico para remisiones
 const generateUniqueIdentifier = () => {
@@ -14,12 +19,13 @@ const generateUniqueIdentifier = () => {
 // Endpoint para crear una remisión
 router.post('/crear-remision', async (req, res) => {
     try {
-        const { clienteId, articulos} = req.body;
+        const { clienteId, articulos } = req.body;
+
         // Verificar si el cliente existe
         const { data: clienteData, error: clienteError } = await supabase
             .from('clientes')
-            .select('id')
-            .eq('id', clienteId) // Buscamos al cliente por su ID
+            .select('id, nombre, email, domicilio, rfc')
+            .eq('id', clienteId)
             .single();
 
         if (clienteError || !clienteData) {
@@ -30,27 +36,21 @@ router.post('/crear-remision', async (req, res) => {
         const identificador = generateUniqueIdentifier();
 
         // Obtener la fecha actual para la remisión
-        const fecha = new Date().toISOString().split('T')[0]; // Formato YYYY-MM-DD
+        const fecha = new Date().toISOString().split('T')[0];
 
         // Insertar la remisión en la tabla "remisiones"
         const { data: remisionData, error: remisionError } = await supabase
             .from('remisiones')
-            .insert([
-                {
-                    fecha,
-                    cliente_id: clienteId, // Usar el clienteId recibido
-                    identificador, // Asignar el identificador único
-                }
-            ])
-            .select(); // Para obtener el ID de la remisión insertada
+            .insert([{ fecha, cliente_id: clienteId, identificador }])
+            .select();
 
         if (remisionError) {
-            throw remisionError; // Manejar el error de creación de la remisión
+            throw remisionError;
         }
 
-        const remisionId = remisionData[0].id;  // Obtener el ID de la remisión insertada
+        const remisionId = remisionData[0].id;
 
-        // Insertar los artículos relacionados con esta remisión en la tabla "detalles_remision"
+        // Obtener la información completa de los artículos
         const detallesToInsert = articulos.map(articulo => ({
             remision_id: remisionId,
             articulo_id: articulo.articuloId,
@@ -62,12 +62,43 @@ router.post('/crear-remision', async (req, res) => {
             .insert(detallesToInsert);
 
         if (detallesError) {
-            throw detallesError; // Manejar el error de inserción de detalles
+            throw detallesError;
         }
+
+        // Obtener los detalles de cada artículo para el PDF
+        const articulosData = await Promise.all(
+            articulos.map(async articulo => {
+                const { data, error } = await supabase
+                    .from('articulos') // Cambia 'articulos' por el nombre correcto de tu tabla
+                    .select('id, descripcion, precio') // Asegúrate de que estos campos existan en tu tabla
+                    .eq('id', articulo.articuloId)
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+
+                return { ...data, cantidad: articulo.cantidad }; // Agrega cantidad a los detalles
+            })
+        );
+
+        // Crear el PDF de la remisión
+        const pdfBuffer = await generateRemisionPDF({
+            id: remisionId,
+            fecha,
+            cliente: clienteData.nombre,
+            domicilio: clienteData.domicilio,
+            rfc: clienteData.rfc,
+            identificador,
+            detalles: articulosData // Usa la data completa
+        });
+
+        // Enviar el PDF por correo electrónico al cliente
+        await sendEmailWithPDF(clienteData.email, identificador, pdfBuffer);
 
         // Responder con éxito
         res.status(201).send({
-            message: 'Remisión creada con éxito',
+            message: 'Remisión creada con éxito y enviada por correo electrónico',
             remisionId,
             identificador
         });
@@ -80,6 +111,71 @@ router.post('/crear-remision', async (req, res) => {
     }
 });
 
+
+// Función para generar el PDF
+async function generateRemisionPDF(remision) {
+    return new Promise((resolve, reject) => {
+        const doc = new PDFDocument();
+        let buffers = [];
+
+        doc.on('data', data => buffers.push(data));
+        doc.on('end', () => resolve(Buffer.concat(buffers)));
+        doc.on('error', reject);
+
+        const { id, fecha, cliente, domicilio, rfc, identificador, detalles } = remision;
+        console.log(detalles)
+        const total = detalles.reduce((sum, item) => sum + (item.precio || 0) * (item.cantidad || 0), 0);
+
+        doc.fontSize(16).text('COMERCIALIZADORA Y DISTRIBUIDORA MEFYV, S.A. DE C.V.', { align: 'center' });
+        doc.fontSize(12).text('Villa de Santiago No. 223, Col. Villas de Anáhuac, CP 66422, San Nicolás de los Garza, N.L.', { align: 'center' });
+        doc.text('RFC CDM101108I55 Tel: 8117770920', { align: 'center' });
+
+        doc.moveDown();
+        doc.text(`REMISION N° ${identificador}`, { align: 'left' });
+        doc.text(`FECHA: ${fecha}`, { align: 'left' });
+        doc.text(`NOMBRE: ${cliente}`, { align: 'left' });
+        doc.text(`DOMICILIO: ${domicilio}`, { align: 'left' });
+        doc.text(`RFC: ${rfc}`, { align: 'left' });
+        doc.moveDown();
+
+        // Genera manualmente la "tabla" de detalles
+        doc.fontSize(12).text('CANTIDAD    DESCRIPCIÓN              PRECIO UNITARIO      TOTAL', { underline: true });
+        detalles.forEach(item => {
+            doc.text(`${item.cantidad}             ${item.descripcion || ''}           $${(item.precio || 0).toFixed(2)}                $${((item.precio || 0) * (item.cantidad || 0)).toFixed(2)}`);
+        });
+
+        doc.moveDown();
+        doc.text(`SUB-TOTAL: $${total.toFixed(2)}`, { align: 'right' });
+        doc.text(`IVA: $0.00`, { align: 'right' });
+        doc.text(`TOTAL: $${total.toFixed(2)}`, { align: 'right' });
+
+        doc.end();
+    });
+}
+
+async function sendEmailWithPDF(email, identificador, pdfBuffer) {
+    const mailOptions = {
+        from: 'noreply@yourdomain.com', // Cambia esto a un correo que hayas verificado en Mailgun
+        to: email,
+        subject: `Remisión N° ${identificador}`,
+        text: `Adjunto se encuentra la remisión N° ${identificador}.`,
+        attachment: [
+            {
+                data: pdfBuffer,
+                filename: `remision_${identificador}.pdf`,
+                contentType: 'application/pdf'
+            }
+        ]
+    };
+
+    try {
+        const response = await mg.messages.create(process.env.MAILGUN_DOMAIN, mailOptions);
+        console.log('Email enviado correctamente:', response);
+    } catch (error) {
+        console.error('Error al enviar el correo:', error);
+        throw new Error('No se pudo enviar el correo');
+    }
+}
 
 // Endpoint para buscar remisiones
 router.get('/buscar', async (req, res) => {
